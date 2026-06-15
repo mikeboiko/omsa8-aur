@@ -81,18 +81,12 @@ jobs:
 
       - name: Publish to AUR
         if: ${{ env.AUR_SSH_PRIVATE_KEY != '' }}
+        env:
+          GIT_AUTHOR_NAME: Mike Boiko
+          GIT_AUTHOR_EMAIL: mike@boiko.ca
         run: |
-          chown -R builder:builder "$GITHUB_WORKSPACE"
-          runuser -u builder -- env \
-            GITHUB_WORKSPACE="$GITHUB_WORKSPACE" \
-            AUR_REMOTE="$AUR_REMOTE" \
-            GIT_SSH_COMMAND="$GIT_SSH_COMMAND" \
-            GIT_AUTHOR_NAME="Mike Boiko" \
-            GIT_AUTHOR_EMAIL="mike@boiko.ca" \
-            bash -lc '
-              cd "$GITHUB_WORKSPACE"
-              ./scripts/publish-aur-tree.sh
-            '
+          cd "$GITHUB_WORKSPACE"
+          ./scripts/publish-aur-tree.sh
 
       - name: Note missing AUR key
         if: ${{ env.AUR_SSH_PRIVATE_KEY == '' }}
