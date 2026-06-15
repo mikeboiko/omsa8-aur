@@ -1,0 +1,99 @@
+name: Publish AUR package
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'PKGBUILD'
+      - '.SRCINFO'
+      - '*.install'
+      - 'dell-openmanage*.service'
+      - 'init-functions'
+      - 'omcliproxy-wrapper'
+      - 'omsa-arch-setup.sh'
+      - 'omarolemap'
+      - 'pam-*'
+      - 'scripts/**'
+  workflow_dispatch:
+    inputs:
+      full_build:
+        description: 'Run a full local package build during validation'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-aur-package
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    defaults:
+      run:
+        shell: bash
+    env:
+      AUR_REMOTE: ssh://aur@aur.archlinux.org/omsa8.git
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install packaging tools
+        run: pacman -Syu --noconfirm --needed git namcap openssh
+
+      - name: Prepare build user
+        run: |
+          if ! id builder >/dev/null 2>&1; then
+            useradd --create-home --shell /bin/bash builder
+          fi
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Validate package
+        run: |
+          args=""
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full_build }}" == "true" ]]; then
+            args="--build"
+          fi
+          runuser -u builder -- env GITHUB_WORKSPACE="$GITHUB_WORKSPACE" bash -lc "
+            cd \"$GITHUB_WORKSPACE\"
+            ./scripts/validate-package.sh $args
+          "
+
+      - name: Configure AUR SSH
+        if: ${{ env.AUR_SSH_PRIVATE_KEY != '' }}
+        run: |
+          ssh_dir="$RUNNER_TEMP/aur-ssh"
+          install -d -m 700 "$ssh_dir"
+          install -m 600 /dev/null "$ssh_dir/aur"
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > "$ssh_dir/aur"
+          install -m 644 .github/aur-known_hosts "$ssh_dir/known_hosts"
+          {
+            echo "GIT_SSH_COMMAND=ssh -i $ssh_dir/aur -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$ssh_dir/known_hosts"
+          } >> "$GITHUB_ENV"
+
+      - name: Publish to AUR
+        if: ${{ env.AUR_SSH_PRIVATE_KEY != '' }}
+        run: |
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          runuser -u builder -- env \
+            GITHUB_WORKSPACE="$GITHUB_WORKSPACE" \
+            AUR_REMOTE="$AUR_REMOTE" \
+            GIT_SSH_COMMAND="$GIT_SSH_COMMAND" \
+            GIT_AUTHOR_NAME="Mike Boiko" \
+            GIT_AUTHOR_EMAIL="mike@boiko.ca" \
+            bash -lc '
+              cd "$GITHUB_WORKSPACE"
+              ./scripts/publish-aur-tree.sh
+            '
+
+      - name: Note missing AUR key
+        if: ${{ env.AUR_SSH_PRIVATE_KEY == '' }}
+        run: echo "::warning::AUR_SSH_PRIVATE_KEY secret is not set - validated only, skipped AUR publish."
