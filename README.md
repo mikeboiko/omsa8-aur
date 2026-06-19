@@ -65,11 +65,20 @@ Roles (Administrator / Power User / User) are mapped in
 
 The web GUI works behind a reverse proxy (e.g. an Nginx vhost or a Cloudflare
 tunnel) — point the proxy at `https://<this-host>:1311` and allow self-signed
-origins. The port-1311 Tomcat connector is configured with a 64 KB maximum HTTP
-header size so that the headers and cookies a proxy adds (Cloudflare's `CF-*`,
-`X-Forwarded-*`, and `__cf_bm` cookie, plus a long `Referer`) do not overflow
-Tomcat's 8 KB default. Without that headroom, heavier requests return `400` and
-the GUI bounces back to the login screen in a redirect loop.
+origins. Two adjustments make this reliable, and both are applied by the
+`omsa8-webserver` package:
+
+- **`SecureSessionFilter` is disabled** (its mapping is commented out in the web
+  app's `web.xml`). That filter pins every session to the TLS session id and
+  treats a request arriving on a different TLS session as a hijacking attempt —
+  it invalidates the session and returns an error. Connection-pooling proxies
+  open several TLS connections to the origin, so OMSA flags its own traffic and
+  the GUI loops endlessly back to the login screen. Login authentication and
+  HTTPS are unaffected; only this TLS-session pinning is removed.
+- **The port-1311 connector's `maxHttpHeaderSize` is raised to 64 KB**, giving
+  headroom for the extra headers and cookies a proxy adds (Cloudflare's `CF-*`,
+  `X-Forwarded-*`, the `__cf_bm` cookie, and a long `Referer`) above Tomcat's
+  small 8 KB default.
 
 ## Requirements
 
