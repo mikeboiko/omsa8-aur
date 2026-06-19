@@ -61,6 +61,16 @@ Roles (Administrator / Power User / User) are mapped in
 `/opt/dell/srvadmin/etc/omarolemap`. By default `root`, the `mike` user, and the
 `root`/`wheel` groups are mapped to Administrator — edit this file for your site.
 
+#### Behind a reverse proxy
+
+The web GUI works behind a reverse proxy (e.g. an Nginx vhost or a Cloudflare
+tunnel) — point the proxy at `https://<this-host>:1311` and allow self-signed
+origins. The port-1311 Tomcat connector is configured with a 64 KB maximum HTTP
+header size so that the headers and cookies a proxy adds (Cloudflare's `CF-*`,
+`X-Forwarded-*`, and `__cf_bm` cookie, plus a long `Referer`) do not overflow
+Tomcat's 8 KB default. Without that headroom, heavier requests return `400` and
+the GUI bounces back to the login screen in a redirect loop.
+
 ## Requirements
 
 - `x86_64`
